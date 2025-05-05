@@ -16,6 +16,8 @@ import psutil
 import platform
 from functools import wraps
 import inspect
+import http.server
+import socketserver
 
 # 定義目標群組ID（請替換成你自己的群組ID）
 TARGET_GROUP_ID = -1002229824712  # 替換成你提供的ID
@@ -3821,3 +3823,43 @@ def handle_set_welcome_text(message):
     except Exception as e:
         bot.reply_to(message, f"❌ 設定歡迎詞時出錯：{str(e)}")
         logger.error(f"設定歡迎詞出錯: {str(e)}")
+
+def start_http_server():
+    # 獲取Render分配的端口
+    port = int(os.environ.get('PORT', 8080))
+    
+    # 一個簡單的HTTP請求處理程序
+    class Handler(http.server.SimpleHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header('Content-type', 'text/html')
+            self.end_headers()
+            self.wfile.write(b'Telegram Bot is running!')
+            
+    # 創建服務器
+    with socketserver.TCPServer(("", port), Handler) as httpd:
+        print(f"HTTP服務器運行在端口 {port}")
+        httpd.serve_forever()
+
+# 在單獨的線程中啟動HTTP服務器
+if os.environ.get('RENDER'):
+    threading.Thread(target=start_http_server, daemon=True).start()
+
+# 創建資料文件夾
+try:
+    for folder in ['data', 'logs']:
+        if not os.path.exists(folder):
+            os.makedirs(folder)
+except Exception as e:
+    print(f"創建文件夾時出錯: {str(e)}")
+
+# 啟動機器人
+try:
+    setup_logging()
+    init_files()
+    start_heartbeat()
+    schedule_cleaning()
+    send_startup_notification()
+    bot.infinity_polling()
+except Exception as e:
+    print(f"Bot啟動失敗: {str(e)}")
