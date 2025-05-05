@@ -1,6 +1,6 @@
 services:
   # Telegram Bot 服務
-  - type: worker
+  - type: web
     name: telegram-bot
     runtime: python
     buildCommand: pip install -r requirements.txt
@@ -30,6 +30,10 @@ services:
         value: "/data/warnings.json"
       - key: WELCOME_FILE
         value: "/data/welcome.json"
+      - key: RENDER
+        value: "true"
+      - key: PORT
+        value: "10000"
 
     # 持久化數據存儲
     disk:
