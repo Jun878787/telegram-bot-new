@@ -1,0 +1,18 @@
+# Telegram Bot 配置
+BOT_TOKEN=your_bot_token_here
+ADMIN_ID=your_admin_telegram_id
+TARGET_GROUP_ID=your_target_group_id
+DEBUG=false
+
+# 數據文件路徑（可選，預設會使用當前目錄）
+DATA_FILE=accounting_data.json
+USER_SETTINGS_FILE=user_settings.json
+EXCHANGE_RATES_FILE=exchange_rates.json
+PUBLIC_PRIVATE_FILE=funds.json
+OPERATORS_FILE=operators.json
+WARNINGS_FILE=warnings.json
+WELCOME_FILE=welcome.json
+
+# 機器人設定
+MAX_ERROR_COUNT=50
+LOG_LEVEL=INFO 

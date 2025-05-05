@@ -1,0 +1,3 @@
+@echo off
+echo 正在啟動 Telegram Bot...
+python bot.py 

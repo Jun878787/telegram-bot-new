@@ -1,0 +1,38 @@
+services:
+  # Telegram Bot 服務
+  - type: web
+    name: telegram-bot
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python bot.py
+    envVars:
+      - key: BOT_TOKEN
+        sync: false
+      - key: ADMIN_ID
+        sync: false
+      - key: TARGET_GROUP_ID
+        sync: false
+      - key: DEBUG
+        value: "false"
+      - key: LOG_LEVEL
+        value: "INFO"
+      - key: DATA_FILE
+        value: "/data/accounting_data.json"
+      - key: USER_SETTINGS_FILE
+        value: "/data/user_settings.json"
+      - key: EXCHANGE_RATES_FILE
+        value: "/data/exchange_rates.json"
+      - key: PUBLIC_PRIVATE_FILE
+        value: "/data/funds.json"
+      - key: OPERATORS_FILE
+        value: "/data/operators.json"
+      - key: WARNINGS_FILE
+        value: "/data/warnings.json"
+      - key: WELCOME_FILE
+        value: "/data/welcome.json"
+
+    # 持久化數據存儲
+    disk:
+      name: data
+      mountPath: /data
+      sizeGB: 1 
