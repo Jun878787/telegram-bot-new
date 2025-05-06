@@ -4,7 +4,7 @@ services:
     name: telegram-bot
     runtime: python
     buildCommand: pip install -r requirements.txt
-    startCommand: python app.py
+    startCommand: gunicorn app:app
     rootDir: .
     envVars:
       - key: BOT_TOKEN
@@ -35,6 +35,8 @@ services:
         value: "true"
       - key: PORT
         value: "10000"
+      - key: PYTHONPATH
+        value: "."
 
     # 持久化數據存儲
     disk:
