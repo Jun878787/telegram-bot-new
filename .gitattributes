@@ -1,0 +1,20 @@
+# 設置默認行為，所有文本文件的行尾設置為 LF
+* text=auto eol=lf
+
+# 確保腳本使用 LF
+*.py text eol=lf
+*.sh text eol=lf
+
+# 聲明二進制文件
+*.jpg binary
+*.png binary
+*.gif binary
+
+# 設置特定的文件類型
+*.json text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.md text eol=lf
+*.txt text eol=lf
+requirements.txt text eol=lf
+Procfile text eol=lf 

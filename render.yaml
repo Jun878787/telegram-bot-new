@@ -3,8 +3,8 @@ services:
   - type: web
     name: telegram-bot
     runtime: python
-    buildCommand: pip install gunicorn && pip install -r requirements.txt && touch server.py && echo "#!/usr/bin/env python3" > server.py && cat render_test.py >> server.py
-    startCommand: python server.py
+    buildCommand: pip install -r requirements.txt
+    startCommand: python setup.py && python server.py
     rootDir: .
     envVars:
       - key: BOT_TOKEN
