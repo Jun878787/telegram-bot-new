@@ -4,7 +4,7 @@ services:
     name: telegram-bot
     runtime: python
     buildCommand: pip install gunicorn && pip install -r requirements.txt
-    startCommand: python start.py
+    startCommand: python debug.py && python start.py
     rootDir: .
     envVars:
       - key: BOT_TOKEN
@@ -14,9 +14,9 @@ services:
       - key: TARGET_GROUP_ID
         sync: false
       - key: DEBUG
-        value: "false"
+        value: "true"
       - key: LOG_LEVEL
-        value: "INFO"
+        value: "DEBUG"
       - key: DATA_FILE
         value: "/data/accounting_data.json"
       - key: USER_SETTINGS_FILE
