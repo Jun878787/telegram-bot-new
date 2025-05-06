@@ -1,86 +1,78 @@
-# Render部署指南
+# Telegram 機器人部署指南
 
-## 部署前的準備工作
+本文檔提供在 Render 平台上部署 Telegram 機器人的詳細指南。
 
-1. 確保所有必要的檔案都在專案根目錄中：
-   - `app.py` - Flask應用程式入口點
-   - `bot.py` - Telegram機器人主程式
-   - `wsgi.py` - Web服務閘道介面
-   - `requirements.txt` - 依賴套件清單
-   - `Procfile` - 處理程序設定檔
-   - `render.yaml` - Render配置檔
-   - `start.py` - 啟動腳本（用於解決gunicorn安裝問題）
+## 部署架構
 
-2. 確認`render.yaml`和`Procfile`中的啟動命令一致：
-   - render.yaml: `startCommand: python start.py`
-   - Procfile: `web: python -m gunicorn app:app`
+此 Telegram 機器人部署採用以下架構：
+
+1. **主要啟動腳本**: `server.py` - 同時啟動 Telegram 機器人和 Web 服務
+2. **機器人邏輯**: `bot.py` - 包含 Telegram 機器人的核心功能
+3. **Web 服務**: `app.py` - 提供健康檢查和狀態監控的 Flask 應用
+
+這種架構確保機器人始終運行，並且 Render 平台可以通過 Web 服務監控機器人狀態。
+
+## 文件說明
+
+- **server.py**: 主啟動腳本，負責配置日誌、啟動機器人和 Web 服務
+- **app.py**: Flask Web 應用，提供健康檢查和狀態監視功能
+- **bot.py**: Telegram 機器人的核心邏輯
+- **wsgi.py**: 用於 gunicorn 啟動 Flask 應用
+- **requirements.txt**: 依賴項列表
+- **render.yaml**: Render 部署配置
+- **Procfile**: 用於定義啟動命令
+
+## 環境變量
+
+在 Render 上部署時，需要設置以下環境變量：
+
+- `BOT_TOKEN`: Telegram 機器人的 API 令牌
+- `ADMIN_ID`: 管理員的 Telegram ID
+- `TARGET_GROUP_ID`: 目標群組的 Telegram ID
+- `PORT`: Web 服務的端口號（Render 會自動設置）
+- `DEBUG`: 設置為 "true" 啟用調試日誌
+- `RENDER`: 設置為 "true" 表示在 Render 環境中運行
 
 ## 部署步驟
 
-1. 登入[Render](https://dashboard.render.com/)
+1. **創建 Render 服務**:
+   - 登錄到 Render 控制台
+   - 點擊 "New" 並選擇 "Web Service"
+   - 連接到您的 GitHub 倉庫
 
-2. 將您的專案連接到GitHub儲存庫
-   - 點擊 "New" > "Web Service"
-   - 選擇您的GitHub儲存庫
-   - 選擇使用 "render.yaml" 進行配置 
+2. **配置服務**:
+   - 名稱: `telegram-bot`（或您喜歡的任何名稱）
+   - 環境: `Python`
+   - 構建命令: `pip install gunicorn && pip install -r requirements.txt`
+   - 啟動命令: `python server.py`
+   - 設置所有所需的環境變量
 
-3. 設定環境變數
-   - 確保設定必要的密鑰，如 `BOT_TOKEN`、`ADMIN_ID` 和 `TARGET_GROUP_ID`
+3. **添加持久存儲**:
+   - 在 Render 控制台中為您的服務添加磁盤
+   - 設置掛載路徑為 `/data`
+   - 分配至少 1 GB 空間
 
-4. 點擊 "Create Web Service" 開始部署
+## 故障排查
 
-## 故障排除
+如果您在部署過程中遇到問題，請檢查：
 
-### 常見問題1: gunicorn命令找不到
-如果收到錯誤 `bash: line 1: gunicorn: command not found`：
+1. **日誌檢查**: 
+   - 在 Render 控制台中查看日誌以獲取詳細錯誤信息
 
-1. 已通過以下方法修復：
-   - 更新 `requirements.txt`，將 gunicorn 放到文件頂部
-   - 在 `render.yaml` 中使用 `pip install gunicorn && pip install -r requirements.txt` 確保先安裝gunicorn
-   - 創建 `start.py` 啟動腳本，處理依賴安裝並啟動應用
-   - 設置 `render.yaml` 使用 `python start.py` 啟動
+2. **常見問題**:
+   - **端口綁定問題**: 確保在 `server.py` 和 `app.py` 中使用環境變量 `PORT`
+   - **模塊未找到**: 確保所有依賴項都在 `requirements.txt` 中列出
+   - **機器人令牌無效**: 檢查 `BOT_TOKEN` 環境變量是否正確設置
 
-2. 若仍出現問題，可以嘗試：
-   - 在部署設置中檢查日誌，查看確切錯誤
-   - 確認您的Python版本與依賴兼容（Render預設使用Python 3.7）
-   - 嘗試使用不同的WSGI服務器，如 `waitress`
+3. **訪問 Web 服務**:
+   - 通過 Render 分配的域名訪問 Web 服務（例如，`https://your-app-name.onrender.com/`）
+   - 檢查 `/health` 端點是否返回 "OK"
+   - 訪問 `/status` 獲取詳細的系統狀態
 
-### 常見問題2: 找不到app.py
-如果收到錯誤 `python: can't open file '/opt/render/project/src/app.py': [Errno 2] No such file or directory`：
+## 重要注意事項
 
-1. 檢查 app.py 是否在專案根目錄中
-2. 確認 render.yaml 中 rootDir 設定為 "."
-3. 確保 startCommand 使用正確的路徑
-4. 先前已通過啟用 `start.py` 腳本解決，它會檢查app.py是否存在
+- 所有敏感數據（如 BOT_TOKEN）應通過環境變量提供，而不是硬編碼在源代碼中
+- 機器人會在 Web 服務啟動時自動在後台運行
+- 對於生產環境，建議將 `DEBUG` 環境變量設置為 "false"
 
-### 其他常見問題解決方法
-
-- **找不到模組錯誤**：確保所有依賴都列在 requirements.txt 中
-- **權限錯誤**：檢查資料目錄的權限設定
-- **日誌錯誤**：確保日誌目錄存在且可寫入
-
-## 推薦配置
-
-在 `requirements.txt` 中添加以下關鍵依賴：
-```
-gunicorn==21.2.0
-flask>=2.0.0
-python-telegram-bot>=13.0
-```
-
-使用啟動腳本運行應用：
-```yaml
-services:
-  - type: web
-    name: telegram-bot
-    runtime: python
-    buildCommand: pip install gunicorn && pip install -r requirements.txt
-    startCommand: python start.py
-    rootDir: .
-```
-
-## 部署後檢查
-
-1. 訪問Render提供的URL確認服務是否正常運行
-2. 檢查Render日誌，確保沒有錯誤
-3. 若應用啟動但機器人無響應，確認Telegram Webhook設置或輪詢機制 
+如果需要進一步幫助，請參考 Render 的官方文檔或提交問題到專案的 GitHub 倉庫。 
