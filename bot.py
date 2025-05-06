@@ -477,6 +477,571 @@ def get_admin_ids():
         return [int(admin_id)]
     return []
 
+# 處理 /start 命令
+@bot.message_handler(commands=['start'])
+@error_handler
+def handle_start(message):
+    """處理 /start 命令，顯示主選單"""
+    user_id = message.from_user.id
+    chat_id = message.chat.id
+    
+    # 歡迎訊息
+    welcome_text = f"""👋 <b>歡迎使用交易記錄機器人！</b>
+
+您可以使用此機器人來記錄和查詢各種交易。
+請點擊下方按鈕開始操作："""
+
+    # 創建主選單按鈕
+    keyboard = InlineKeyboardMarkup(row_width=2)
+    
+    # 添加功能按鈕
+    keyboard.add(
+        InlineKeyboardButton("📊 查看報表", callback_data="report_view"),
+        InlineKeyboardButton("💰 台幣入帳", callback_data="add_tw"),
+        InlineKeyboardButton("💴 人民幣入帳", callback_data="add_cn"),
+        InlineKeyboardButton("📆 設定匯率", callback_data="set_rate"),
+        InlineKeyboardButton("⚙️ 設定", callback_data="settings"),
+        InlineKeyboardButton("❓ 幫助", callback_data="help")
+    )
+    
+    # 僅對管理員顯示管理選項
+    if is_admin(user_id, chat_id):
+        keyboard.add(
+            InlineKeyboardButton("🔄 初始化報表", callback_data="report_init"),
+            InlineKeyboardButton("👥 管理操作員", callback_data="manage_operators")
+        )
+    
+    # 發送選單
+    bot.send_message(chat_id, welcome_text, reply_markup=keyboard, parse_mode='HTML')
+    
+    if 'logger' in globals():
+        logger.info(f"用戶 {message.from_user.username or user_id} 啟動了機器人")
+
+# 處理 /menu 命令
+@bot.message_handler(commands=['menu'])
+@error_handler
+def handle_menu(message):
+    """處理 /menu 命令，顯示主選單"""
+    handle_start(message)  # 使用相同的選單
+
+# 處理按鈕回調
+@bot.callback_query_handler(func=lambda call: True)
+@error_handler
+def handle_button_click(call):
+    """處理按鈕點擊事件"""
+    try:
+        # 獲取回調數據
+        callback_data = call.data
+        user_id = call.from_user.id
+        
+        # 記錄回調事件
+        if 'logger' in globals():
+            logger.info(f"收到用戶 {call.from_user.username or user_id} 的按鈕點擊: '{callback_data}'")
+        
+        # 處理主選單按鈕
+        if callback_data == "report_view":
+            # 查看報表 - 顯示本月報表
+            report = generate_report(user_id)
+            
+            # 添加月份選擇按鈕
+            now = datetime.now()
+            keyboard = InlineKeyboardMarkup(row_width=3)
+            
+            # 添加最近3個月的按鈕
+            month_buttons = []
+            for i in range(3):
+                month = now.month - i
+                year = now.year
+                if month <= 0:
+                    month += 12
+                    year -= 1
+                month_name = ('一', '二', '三', '四', '五', '六', '七', '八', '九', '十', '十一', '十二')[month-1]
+                month_buttons.append(
+                    InlineKeyboardButton(
+                        f"{year}年{month}月",
+                        callback_data=f"report_month_{month}_{year}"
+                    )
+                )
+            
+            keyboard.add(*month_buttons)
+            keyboard.add(InlineKeyboardButton("🔙 返回主選單", callback_data="back_to_menu"))
+            
+            bot.send_message(call.message.chat.id, report, reply_markup=keyboard, parse_mode='HTML')
+            
+        elif callback_data == "add_tw":
+            # 台幣入帳 - 啟動輸入台幣金額的流程
+            msg = bot.send_message(call.message.chat.id, 
+                "請輸入台幣入帳金額和日期(選填)，格式如下：\n\n<code>50000 5/1</code>\n\n日期格式可以是MM/DD或YYYY-MM-DD。如不輸入日期，默認為今天。", 
+                parse_mode='HTML')
+            
+            # 設置用戶狀態為等待台幣輸入
+            user_states[user_id] = {
+                'state': 'waiting_tw_input',
+                'prompt_msg_id': msg.message_id
+            }
+            
+        elif callback_data == "add_cn":
+            # 人民幣入帳 - 啟動輸入人民幣金額的流程
+            msg = bot.send_message(call.message.chat.id, 
+                "請輸入人民幣入帳金額和日期(選填)，格式如下：\n\n<code>10000 5/1</code>\n\n日期格式可以是MM/DD或YYYY-MM-DD。如不輸入日期，默認為今天。", 
+                parse_mode='HTML')
+            
+            # 設置用戶狀態為等待人民幣輸入
+            user_states[user_id] = {
+                'state': 'waiting_cn_input',
+                'prompt_msg_id': msg.message_id
+            }
+            
+        elif callback_data == "set_rate":
+            # 設定匯率 - 僅限管理員
+            if not is_admin(user_id, call.message.chat.id):
+                bot.answer_callback_query(call.id, "您沒有權限設定匯率")
+                return
+                
+            current_rate = get_rate()
+            msg = bot.send_message(call.message.chat.id, 
+                f"當前台幣匯率: {current_rate}\n\n請輸入新的匯率，例如: <code>33.5</code>", 
+                parse_mode='HTML')
+            
+            # 設置用戶狀態為等待匯率輸入
+            user_states[user_id] = {
+                'state': 'waiting_rate_input',
+                'prompt_msg_id': msg.message_id
+            }
+            
+        elif callback_data == "settings":
+            # 設定選單
+            keyboard = InlineKeyboardMarkup(row_width=1)
+            keyboard.add(
+                InlineKeyboardButton("⌨️ 設定報表名稱", callback_data="set_report_name"),
+                InlineKeyboardButton("🔙 返回主選單", callback_data="back_to_menu")
+            )
+            
+            bot.send_message(call.message.chat.id, "⚙️ 請選擇設定項目：", reply_markup=keyboard)
+            
+        elif callback_data == "help":
+            # 顯示幫助訊息
+            help_text = """❓ <b>機器人使用幫助</b>
+
+<b>基本命令：</b>
+/start - 啟動機器人並顯示主選單
+/menu - 顯示主選單
+/report - 查看當月報表
+
+<b>功能說明：</b>
+• 查看報表：顯示當月或選定月份的交易報表
+• 台幣入帳：記錄台幣交易，格式為 <金額> <日期(選填)>
+• 人民幣入帳：記錄人民幣交易，格式同上
+• 設定匯率：設定台幣兌換匯率
+• 設定：更改報表名稱等個人設定
+
+<b>管理員功能：</b>
+• 初始化報表：清空所有交易記錄
+• 管理操作員：添加或移除操作員權限
+"""
+            keyboard = InlineKeyboardMarkup()
+            keyboard.add(InlineKeyboardButton("🔙 返回主選單", callback_data="back_to_menu"))
+            
+            bot.send_message(call.message.chat.id, help_text, reply_markup=keyboard, parse_mode='HTML')
+            
+        elif callback_data.startswith('report_'):
+            # 處理報表相關按鈕
+            parts = callback_data.split('_')
+            if len(parts) >= 2:
+                action = parts[1]
+                
+                if action == 'month':
+                    # 顯示月報表
+                    month = int(parts[2]) if len(parts) > 2 else datetime.now().month
+                    year = int(parts[3]) if len(parts) > 3 else datetime.now().year
+                    report = generate_report(user_id, month, year)
+                    
+                    # 創建月份選擇按鈕
+                    keyboard = InlineKeyboardMarkup(row_width=3)
+                    
+                    # 添加上一個月和下一個月按鈕
+                    prev_month = month - 1
+                    prev_year = year
+                    if prev_month <= 0:
+                        prev_month += 12
+                        prev_year -= 1
+                        
+                    next_month = month + 1
+                    next_year = year
+                    if next_month > 12:
+                        next_month -= 12
+                        next_year += 1
+                    
+                    keyboard.row(
+                        InlineKeyboardButton(f"◀️ {prev_month}月", callback_data=f"report_month_{prev_month}_{prev_year}"),
+                        InlineKeyboardButton("🔙 主選單", callback_data="back_to_menu"),
+                        InlineKeyboardButton(f"{next_month}月 ▶️", callback_data=f"report_month_{next_month}_{next_year}")
+                    )
+                    
+                    bot.edit_message_text(chat_id=call.message.chat.id, 
+                                         message_id=call.message.message_id,
+                                         text=report,
+                                         parse_mode='HTML',
+                                         reply_markup=keyboard)
+                    
+                elif action == 'init':
+                    # 初始化報表確認
+                    if not is_admin(user_id, call.message.chat.id):
+                        bot.answer_callback_query(call.id, "您沒有權限初始化報表")
+                        return
+                        
+                    kb = InlineKeyboardMarkup()
+                    kb.row(
+                        InlineKeyboardButton("✅ 確認", callback_data="confirm_init"),
+                        InlineKeyboardButton("❌ 取消", callback_data="cancel_init")
+                    )
+                    bot.edit_message_text(chat_id=call.message.chat.id,
+                                         message_id=call.message.message_id,
+                                         text="⚠️ 確定要初始化報表嗎？這將清空所有記帳數據！",
+                                         reply_markup=kb)
+        
+        elif callback_data == "set_report_name":
+            # 設定報表名稱
+            current_name = get_report_name(user_id)
+            msg = bot.send_message(call.message.chat.id, 
+                f"當前報表名稱: {current_name}\n\n請輸入新的報表名稱：", 
+                parse_mode='HTML')
+            
+            # 設置用戶狀態為等待報表名稱輸入
+            user_states[user_id] = {
+                'state': 'waiting_report_name',
+                'prompt_msg_id': msg.message_id
+            }
+            
+        elif callback_data == "back_to_menu":
+            # 返回主選單
+            handle_start(call.message)
+            
+            # 嘗試刪除原訊息
+            try:
+                bot.delete_message(call.message.chat.id, call.message.message_id)
+            except:
+                pass
+                
+        elif callback_data == "confirm_init":
+            # 確認初始化報表
+            if not is_admin(user_id, call.message.chat.id):
+                bot.answer_callback_query(call.id, "您沒有權限初始化報表")
+                return
+                
+            data = load_data(DATA_FILE)
+            str_user_id = str(user_id)
+            
+            if str_user_id in data:
+                data[str_user_id] = {}
+                save_data(data, DATA_FILE)
+                logger.info(f"已清空用戶 {str_user_id} 的報表數據")
+            
+            # 重置報表名稱
+            settings = load_data(USER_SETTINGS_FILE)
+            if str_user_id in settings:
+                if 'report_name' in settings[str_user_id]:
+                    settings[str_user_id]['report_name'] = "總表"
+                save_data(settings, USER_SETTINGS_FILE)
+            
+            # 創建返回按鈕
+            keyboard = InlineKeyboardMarkup()
+            keyboard.add(InlineKeyboardButton("🔙 返回主選單", callback_data="back_to_menu"))
+            
+            bot.edit_message_text(chat_id=call.message.chat.id,
+                                 message_id=call.message.message_id,
+                                 text="✅ 報表已成功初始化！所有記帳數據已清空。",
+                                 reply_markup=keyboard)
+            
+        elif callback_data == "cancel_init":
+            # 取消初始化
+            keyboard = InlineKeyboardMarkup()
+            keyboard.add(InlineKeyboardButton("🔙 返回主選單", callback_data="back_to_menu"))
+            
+            bot.edit_message_text(chat_id=call.message.chat.id,
+                                 message_id=call.message.message_id,
+                                 text="❌ 初始化已取消。",
+                                 reply_markup=keyboard)
+        
+        elif callback_data == "manage_operators":
+            # 管理操作員 - 僅限管理員
+            if not is_admin(user_id, call.message.chat.id):
+                bot.answer_callback_query(call.id, "您沒有權限管理操作員")
+                return
+                
+            # 顯示當前操作員列表
+            config = load_data(BOT_CONFIG_FILE)
+            operators = config.get('operators', [])
+            
+            operators_text = "目前沒有操作員" if not operators else "\n".join([f"- {op}" for op in operators])
+            
+            msg_text = f"""👥 <b>操作員管理</b>
+
+當前操作員列表：
+{operators_text}
+
+請輸入要添加或移除的操作員ID，格式如下：
+添加: <code>+123456789</code>
+移除: <code>-123456789</code>
+"""
+            msg = bot.send_message(call.message.chat.id, msg_text, parse_mode='HTML')
+            
+            # 設置用戶狀態為等待操作員管理輸入
+            user_states[user_id] = {
+                'state': 'waiting_operator_input',
+                'prompt_msg_id': msg.message_id
+            }
+        
+        # 其他按鈕處理可以根據需要添加
+        else:
+            # 處理未知的回調數據
+            bot.answer_callback_query(call.id, "此功能尚未實現")
+            
+        # 確認回調處理完成
+        if not call.data.startswith("back_to_menu"):
+            try:
+                bot.answer_callback_query(call.id)
+            except:
+                pass
+            
+    except Exception as e:
+        error_msg = f"處理按鈕點擊時出錯: {str(e)}"
+        if 'logger' in globals():
+            logger.error(error_msg)
+        try:
+            bot.answer_callback_query(call.id, "處理請求時出錯，請稍後重試")
+        except:
+            pass
+
+# 處理用戶文本輸入
+@bot.message_handler(func=lambda message: message.from_user.id in user_states and message.reply_to_message is not None)
+@error_handler
+def handle_user_input(message):
+    """處理用戶在各種狀態下的文本輸入"""
+    user_id = message.from_user.id
+    chat_id = message.chat.id
+    text = message.text
+    state = user_states.get(user_id, {}).get('state', '')
+    
+    # 確保回复的是正確的提示消息
+    expected_msg_id = user_states.get(user_id, {}).get('prompt_msg_id')
+    if message.reply_to_message.message_id != expected_msg_id:
+        return
+        
+    if 'logger' in globals():
+        logger.info(f"處理用戶 {message.from_user.username or user_id} 在狀態 {state} 的輸入: '{text}'")
+    
+    try:
+        # 根據用戶當前狀態處理不同的輸入
+        if state == 'waiting_tw_input':
+            # 處理台幣輸入
+            parts = text.strip().split()
+            
+            # 解析金額
+            try:
+                amount = float(parts[0].replace(',', ''))
+            except ValueError:
+                bot.reply_to(message, "❌ 金額格式不正確，請輸入有效的數字。")
+                return
+                
+            # 解析日期
+            if len(parts) > 1:
+                date_str = parts[1]
+                dt = parse_date(date_str)
+            else:
+                dt = datetime.now()
+                
+            date = dt.strftime('%Y-%m-%d')
+            
+            # 添加交易記錄
+            add_transaction(user_id, date, "TW", amount)
+            
+            # 發送確認訊息
+            bot.reply_to(message, f"✅ 已添加台幣入帳：NT${amount:,.0f} ({date})")
+            
+            # 生成並發送更新後的報表
+            report = generate_report(user_id)
+            keyboard = InlineKeyboardMarkup()
+            keyboard.add(InlineKeyboardButton("🔙 返回主選單", callback_data="back_to_menu"))
+            bot.send_message(chat_id, report, reply_markup=keyboard, parse_mode='HTML')
+            
+        elif state == 'waiting_cn_input':
+            # 處理人民幣輸入
+            parts = text.strip().split()
+            
+            # 解析金額
+            try:
+                amount = float(parts[0].replace(',', ''))
+            except ValueError:
+                bot.reply_to(message, "❌ 金額格式不正確，請輸入有效的數字。")
+                return
+                
+            # 解析日期
+            if len(parts) > 1:
+                date_str = parts[1]
+                dt = parse_date(date_str)
+            else:
+                dt = datetime.now()
+                
+            date = dt.strftime('%Y-%m-%d')
+            
+            # 添加交易記錄
+            add_transaction(user_id, date, "CN", amount)
+            
+            # 發送確認訊息
+            bot.reply_to(message, f"✅ 已添加人民幣入帳：CN¥{amount:,.0f} ({date})")
+            
+            # 生成並發送更新後的報表
+            report = generate_report(user_id)
+            keyboard = InlineKeyboardMarkup()
+            keyboard.add(InlineKeyboardButton("🔙 返回主選單", callback_data="back_to_menu"))
+            bot.send_message(chat_id, report, reply_markup=keyboard, parse_mode='HTML')
+            
+        elif state == 'waiting_rate_input':
+            # 處理匯率輸入
+            try:
+                rate = float(text.strip())
+                if rate <= 0:
+                    bot.reply_to(message, "❌ 匯率必須大於零。")
+                    return
+            except ValueError:
+                bot.reply_to(message, "❌ 匯率格式不正確，請輸入有效的數字。")
+                return
+                
+            # 更新匯率
+            set_rate(rate)
+            
+            # 發送確認訊息
+            bot.reply_to(message, f"✅ 已更新台幣匯率為：{rate}")
+            
+            # 發送主選單
+            keyboard = InlineKeyboardMarkup()
+            keyboard.add(InlineKeyboardButton("🔙 返回主選單", callback_data="back_to_menu"))
+            bot.send_message(chat_id, "匯率已更新。請選擇下一步操作：", reply_markup=keyboard)
+            
+        elif state == 'waiting_report_name':
+            # 處理報表名稱輸入
+            name = text.strip()
+            if not name:
+                bot.reply_to(message, "❌ 報表名稱不能為空。")
+                return
+                
+            # 更新報表名稱
+            set_report_name(user_id, name)
+            
+            # 發送確認訊息
+            bot.reply_to(message, f"✅ 已更新報表名稱為：{name}")
+            
+            # 生成並發送更新後的報表
+            report = generate_report(user_id)
+            keyboard = InlineKeyboardMarkup()
+            keyboard.add(InlineKeyboardButton("🔙 返回主選單", callback_data="back_to_menu"))
+            bot.send_message(chat_id, report, reply_markup=keyboard, parse_mode='HTML')
+            
+        elif state == 'waiting_operator_input':
+            # 處理操作員管理輸入
+            input_text = text.strip()
+            
+            # 確認輸入格式
+            if not (input_text.startswith('+') or input_text.startswith('-')):
+                bot.reply_to(message, "❌ 輸入格式不正確，請使用 +ID 添加或 -ID 移除操作員。")
+                return
+                
+            action = input_text[0]  # '+' 或 '-'
+            op_id = input_text[1:].strip()
+            
+            # 驗證 ID
+            try:
+                op_id = int(op_id)
+            except ValueError:
+                bot.reply_to(message, "❌ ID 必須是數字。")
+                return
+                
+            # 執行操作
+            config = load_data(BOT_CONFIG_FILE)
+            if 'operators' not in config:
+                config['operators'] = []
+                
+            operators = config['operators']
+            str_op_id = str(op_id)
+            
+            if action == '+':
+                # 添加操作員
+                if str_op_id not in [str(op) for op in operators]:
+                    operators.append(op_id)
+                    save_data(config, BOT_CONFIG_FILE)
+                    bot.reply_to(message, f"✅ 已添加操作員：{op_id}")
+                else:
+                    bot.reply_to(message, f"ℹ️ 該 ID 已經是操作員。")
+            else:
+                # 移除操作員
+                if str_op_id in [str(op) for op in operators]:
+                    operators = [op for op in operators if str(op) != str_op_id]
+                    config['operators'] = operators
+                    save_data(config, BOT_CONFIG_FILE)
+                    bot.reply_to(message, f"✅ 已移除操作員：{op_id}")
+                else:
+                    bot.reply_to(message, f"ℹ️ 該 ID 不是操作員。")
+            
+            # 更新操作員列表顯示
+            operators = config.get('operators', [])
+            operators_text = "目前沒有操作員" if not operators else "\n".join([f"- {op}" for op in operators])
+            
+            msg_text = f"""👥 <b>操作員管理</b>
+
+當前操作員列表：
+{operators_text}
+
+請輸入要添加或移除的操作員ID，格式如下：
+添加: <code>+123456789</code>
+移除: <code>-123456789</code>
+"""
+            keyboard = InlineKeyboardMarkup()
+            keyboard.add(InlineKeyboardButton("🔙 返回主選單", callback_data="back_to_menu"))
+            bot.send_message(chat_id, msg_text, reply_markup=keyboard, parse_mode='HTML')
+        
+    except Exception as e:
+        error_msg = f"處理用戶輸入時出錯: {str(e)}"
+        if 'logger' in globals():
+            logger.error(error_msg)
+        bot.reply_to(message, f"❌ 處理輸入時出錯: {str(e)}")
+    finally:
+        # 清除用戶狀態
+        if user_id in user_states:
+            del user_states[user_id]
+
+# 添加 /report 命令處理
+@bot.message_handler(commands=['report'])
+@error_handler
+def handle_report_command(message):
+    """處理 /report 命令，顯示當月報表"""
+    user_id = message.from_user.id
+    report = generate_report(user_id)
+    
+    # 添加月份選擇按鈕
+    now = datetime.now()
+    keyboard = InlineKeyboardMarkup(row_width=3)
+    
+    # 添加最近3個月的按鈕
+    month_buttons = []
+    for i in range(3):
+        month = now.month - i
+        year = now.year
+        if month <= 0:
+            month += 12
+            year -= 1
+        month_buttons.append(
+            InlineKeyboardButton(
+                f"{year}年{month}月",
+                callback_data=f"report_month_{month}_{year}"
+            )
+        )
+    
+    keyboard.add(*month_buttons)
+    keyboard.add(InlineKeyboardButton("🔙 返回主選單", callback_data="back_to_menu"))
+    
+    bot.send_message(message.chat.id, report, reply_markup=keyboard, parse_mode='HTML')
+
 # 簡單的健康檢查 Web 服務器
 class HealthCheckHandler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
