@@ -4,7 +4,7 @@ services:
     name: telegram-bot
     runtime: python
     buildCommand: pip install -r requirements.txt
-    startCommand: python setup.py && python server.py
+    startCommand: python setup.py && python bot.py
     rootDir: .
     envVars:
       - key: BOT_TOKEN

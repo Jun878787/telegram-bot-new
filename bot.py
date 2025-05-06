@@ -18,6 +18,7 @@ import time
 import http.server
 import socketserver
 from functools import wraps
+import traceback
 
 # 全局變量
 BOT_TOKEN = os.environ.get('BOT_TOKEN', 'YOUR_BOT_TOKEN_HERE')
@@ -30,6 +31,59 @@ LOG_FILE = 'logs/bot.log'
 MAX_ERROR_COUNT = 5
 RESTART_FLAG = False
 BOT_START_TIME = datetime.now()
+
+# 錯誤處理裝飾器
+def error_handler(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except Exception as e:
+            # 獲取全局錯誤計數器
+            global error_count, error_time
+            
+            # 記錄錯誤
+            error_msg = f"機器人錯誤: {str(e)}"
+            exc_info = sys.exc_info()
+            if exc_info[2]:
+                line_number = exc_info[2].tb_lineno
+                error_msg += f" (行: {line_number})"
+            
+            # 只有在有logger時才記錄
+            if 'logger' in globals():
+                logger.error(error_msg)
+                logger.error(f"詳細錯誤: {repr(e)}")
+            else:
+                print(error_msg)
+                print(f"詳細錯誤: {repr(e)}")
+            
+            # 計算錯誤率
+            now = datetime.now()
+            if (now - error_time).total_seconds() > 3600:  # 1小時重置計數器
+                error_count = 0
+                error_time = now
+            
+            error_count += 1
+            
+            # 檢查是否需要重啟
+            if error_count > int(os.environ.get('MAX_ERROR_COUNT', MAX_ERROR_COUNT)):
+                if 'logger' in globals():
+                    logger.critical(f"錯誤次數過多 ({error_count})，標記機器人需要重啟")
+                else:
+                    print(f"錯誤次數過多 ({error_count})，標記機器人需要重啟")
+                
+                global RESTART_FLAG
+                RESTART_FLAG = True
+            
+            # 如果是消息處理器，嘗試回復錯誤
+            try:
+                if len(args) > 0 and hasattr(args[0], 'chat') and hasattr(args[0], 'from_user'):
+                    message = args[0]
+                    bot.reply_to(message, f"❌ 發生錯誤: {str(e)}\n請稍後重試或聯繫管理員。")
+            except:
+                pass
+                
+    return wrapper
 
 # 初始化機器人
 bot = telebot.TeleBot(BOT_TOKEN)
@@ -410,4 +464,97 @@ def handle_init_confirmation(message):
         # 確保無論如何都清除用戶狀態
         if user_id in user_states:
             del user_states[user_id]
-            logger.info(f"已清除用戶 {user_id} 的狀態") 
+            logger.info(f"已清除用戶 {user_id} 的狀態")
+
+# 獲取管理員ID列表
+def get_admin_ids():
+    """獲取管理員ID列表"""
+    admin_id = os.environ.get('ADMIN_ID')
+    if admin_id:
+        # 處理可能的多個管理員ID
+        if ',' in admin_id:
+            return [int(aid.strip()) for aid in admin_id.split(',')]
+        return [int(admin_id)]
+    return []
+
+# 簡單的健康檢查 Web 服務器
+class HealthCheckHandler(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        status = 200
+        response = {"status": "ok", "bot_running": True, "uptime": str(datetime.now() - BOT_START_TIME)}
+        
+        self.send_response(status)
+        self.send_header('Content-type', 'application/json')
+        self.end_headers()
+        self.wfile.write(json.dumps(response).encode('utf-8'))
+    
+    def log_message(self, format, *args):
+        if 'logger' in globals():
+            logger.info("%s - - [%s] %s" % (self.client_address[0], self.log_date_time_string(), format % args))
+
+# 啟動 Web 服務器
+def start_web_server(port=10000):
+    """啟動簡單的健康檢查 Web 服務器"""
+    try:
+        server = socketserver.TCPServer(("0.0.0.0", port), HealthCheckHandler)
+        server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+        server_thread.start()
+        if 'logger' in globals():
+            logger.info(f"健康檢查 Web 服務器已啟動在端口 {port}")
+        else:
+            print(f"健康檢查 Web 服務器已啟動在端口 {port}")
+        return server
+    except Exception as e:
+        if 'logger' in globals():
+            logger.error(f"啟動 Web 服務器時出錯: {e}")
+        else:
+            print(f"啟動 Web 服務器時出錯: {e}")
+        return None
+
+# 運行機器人函數
+def run_bot():
+    """運行機器人的主函數"""
+    try:
+        # 初始化日誌
+        global logger
+        logger = setup_logging()
+        logger.info("初始化機器人...")
+        
+        # 初始化數據文件
+        init_files()
+        
+        # 確保機器人設定檔存在
+        if not os.path.exists(BOT_CONFIG_FILE):
+            with open(BOT_CONFIG_FILE, 'w', encoding='utf-8') as f:
+                json.dump({
+                    "deposit_rate": 33.3,
+                    "withdrawal_rate": 33.25,
+                    "operators": [],
+                    "transactions": [],
+                    "processed_amount": 0.0
+                }, f, ensure_ascii=False, indent=2)
+            logger.info("創建了機器人設定檔")
+        
+        # 如果在 Render 環境中，啟動 Web 服務器
+        if os.environ.get('RENDER') == 'true':
+            port = int(os.environ.get('PORT', 10000))
+            web_server = start_web_server(port)
+            logger.info(f"在 Render 環境中運行，已啟動健康檢查 Web 服務器在端口 {port}")
+            
+        # 發送啟動通知
+        try:
+            send_startup_notification()
+        except Exception as e:
+            logger.error(f"發送啟動通知時出錯: {e}")
+        
+        # 啟動機器人
+        logger.info(f"機器人啟動中，TOKEN: {BOT_TOKEN[:5]}..." if len(BOT_TOKEN) > 5 else "機器人啟動中，但未設置TOKEN")
+        bot.polling(none_stop=True, interval=1, timeout=60)
+    except Exception as e:
+        logger.error(f"機器人啟動時出錯: {e}")
+        logger.error(traceback.format_exc())
+        sys.exit(1)
+
+# 直接運行檔案時的入口點
+if __name__ == "__main__":
+    run_bot() 
